@@ -13,5 +13,8 @@ const renderByMyReact = () => {
       </div>
   );
   console.log(element,'数据😎😎😎element');
+
+  const container = document.getElementById("didact-root");
+  Didact.render(element, container);
 }
 renderByMyReact()
