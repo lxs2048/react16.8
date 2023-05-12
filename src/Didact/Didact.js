@@ -40,12 +40,61 @@ function workLoop(deadline) {
 
 requestIdleCallback(workLoop)
 
-function performUnitOfWork(nextUnitOfWork) {
-    // TODO 我们需要先设置渲染的第一个任务单元，然后开始循环。performUnitOfWork 函数不仅需要执行每一小块的任务单元，还需要返回下一个任务单元。
+// 设置渲染的第一个任务单元，然后开始循环。performUnitOfWork 函数不仅需要执行每一小块的任务单元，还需要返回下一个任务单元。
+function performUnitOfWork(fiber) {
+    // 每一个 element 都是一个 fiber，每一个 fiber 都是一个任务单元。
+    /*
+        每个 fiber 节点完成下述三件事：
+        把 element 添加到 DOM 上
+        为该 fiber 节点的子节点新建 fiber
+        挑出下一个任务单元
+    */
+    // 首先创建 fiber 对应的 DOM 节点，并将它添加（append）到父节点的 DOM 上。
+    if (!fiber.dom) {
+        fiber.dom = createDom(fiber)
+    }
+    if (fiber.parent) {
+        fiber.parent.dom.appendChild(fiber.dom)
+    }
+    // 为每个子节点创建对应的新的 fiber 节点。
+    const elements = fiber.props.children
+    let index = 0
+    let prevSibling = null
+    while (index < elements.length) {
+        // 每个 fiber 都会指向它的第一个子节点、它的下一个兄弟节点 和 父节点
+        const element = elements[index]
+        const newFiber = {
+            type: element.type,
+            props: element.props,
+            parent: fiber,
+            dom: null,
+        }
+        // 根据是否是第一个子节点，来设置父节点的 child 属性的指向，或者上一个节点的 sibling 属性的指向。
+        if (index === 0) {
+            fiber.child = newFiber
+        } else {
+            prevSibling.sibling = newFiber
+        }
+
+        prevSibling = newFiber
+        index++
+    }
+    // 最后找到下一个工作单元。 先试试 child 节点，再试试 sibling 节点，再试试 “uncle” 节点。
+    if (fiber.child) {
+        return fiber.child
+    }
+    let nextFiber = fiber
+    while (nextFiber) {
+        // 先试试 child 节点，再试试 sibling 节点，再试试 “uncle” 节点，或者直到达到根节点
+        if (nextFiber.sibling) {
+            return nextFiber.sibling
+        }
+        nextFiber = nextFiber.parent
+    }
 }
 // 把element渲染到页面,暂时只关心如何在 DOM 上添加东西，之后再考虑 更新 和 删除。
 function render(element, container) {
-    // render 函数中我们把 nextUnitOfWork 置为 fiber 树的根节点。
+    // 创建了 根fiber，并且将其设为 nextUnitOfWork 作为第一个任务单元，剩下的任务单元会通过 performUnitOfWork 函数完成并返回
     nextUnitOfWork = {
         dom: container,
         props: {
