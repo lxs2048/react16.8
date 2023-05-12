@@ -26,6 +26,7 @@ function createTextElement(text) {
 }
 
 let nextUnitOfWork = null
+let wipRoot = null//把修改 DOM 这部分内容记录在 fiber tree 上，通过追踪这颗树来收集所有 DOM 节点的修改，这棵树叫做 wipRoot（work in progress root）。
 // React 并不是用 requestIdleCallback 的。它使用自己编写的 scheduler package。 但两者概念上是相同的
 function workLoop(deadline) {
     let shouldYield = false
@@ -35,10 +36,30 @@ function workLoop(deadline) {
         )
         shouldYield = deadline.timeRemaining() < 1
     }
+    // 一旦完成了 wipRoot 这颗树上的所有任务（next unit of work 为 undefined），我们把整颗树的变更提交（commit）到实际的 DOM 上。
+    if (!nextUnitOfWork && wipRoot) {
+        commitRoot()
+    }
     requestIdleCallback(workLoop)
 }
 
 requestIdleCallback(workLoop)
+
+//todo 至今我们只完成了 添加 东西到 DOM 上这个操作，更新和删除 node 节点呢
+function commitRoot() {
+    commitWork(wipRoot.child)
+    wipRoot = null
+}
+
+function commitWork(fiber) {
+    if (!fiber) {
+        return
+    }
+    const domParent = fiber.parent.dom
+    domParent.appendChild(fiber.dom)
+    commitWork(fiber.child)
+    commitWork(fiber.sibling)
+}
 
 // 设置渲染的第一个任务单元，然后开始循环。performUnitOfWork 函数不仅需要执行每一小块的任务单元，还需要返回下一个任务单元。
 function performUnitOfWork(fiber) {
@@ -53,9 +74,11 @@ function performUnitOfWork(fiber) {
     if (!fiber.dom) {
         fiber.dom = createDom(fiber)
     }
-    if (fiber.parent) {
-        fiber.parent.dom.appendChild(fiber.dom)
-    }
+    /* 一边遍历 element，一边生成新的 DOM 节点并且添加到其父节点上。在完成整棵树的渲染前，浏览器还要中途阻断这个过程。 那么用户就有可能看到渲染未完全的 UI
+    把修改 DOM 节点的这部分给单独移出 */
+    // if (fiber.parent) {
+    //     fiber.parent.dom.appendChild(fiber.dom)
+    // }
     // 为每个子节点创建对应的新的 fiber 节点。
     const elements = fiber.props.children
     let index = 0
@@ -95,12 +118,13 @@ function performUnitOfWork(fiber) {
 // 把element渲染到页面,暂时只关心如何在 DOM 上添加东西，之后再考虑 更新 和 删除。
 function render(element, container) {
     // 创建了 根fiber，并且将其设为 nextUnitOfWork 作为第一个任务单元，剩下的任务单元会通过 performUnitOfWork 函数完成并返回
-    nextUnitOfWork = {
+    wipRoot = {
         dom: container,
         props: {
             children: [element],
         },
     }
+    nextUnitOfWork = wipRoot
 }
 // 创建DOM节点抽成一个函数
 function createDom(fiber) {
