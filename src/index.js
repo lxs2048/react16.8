@@ -17,8 +17,16 @@ const App = (props)=>{
         </div>
     )
 }
+function Counter() {
+    const [state, setState] = Didact.useState(1)
+    return (
+      <h1 onClick={() => setState(c => c + 1)}>
+        Count: {state}
+      </h1>
+    )
+  }
 const renderByMyReact = (value) => {
-  const element = <App value={value} />;
+  const element = <Counter />;
 
   const container = document.getElementById("didact-root");
   Didact.render(element, container);
