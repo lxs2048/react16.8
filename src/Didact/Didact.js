@@ -27,6 +27,8 @@ function createTextElement(text) {
 
 let nextUnitOfWork = null
 let wipRoot = null//把修改 DOM 这部分内容记录在 fiber tree 上，通过追踪这颗树来收集所有 DOM 节点的修改，这棵树叫做 wipRoot（work in progress root）。
+let currentRoot = null//这里需要保存”上次提交到 DOM 节点的 fiber 树” 的”引用”（reference）。我们称之为 currentRoot。
+let deletions = null//保存要移除的 dom 节点。
 // React 并不是用 requestIdleCallback 的。它使用自己编写的 scheduler package。 但两者概念上是相同的
 function workLoop(deadline) {
     let shouldYield = false
@@ -47,7 +49,9 @@ requestIdleCallback(workLoop)
 
 //todo 至今我们只完成了 添加 东西到 DOM 上这个操作，更新和删除 node 节点呢
 function commitRoot() {
+    deletions.forEach(commitWork)
     commitWork(wipRoot.child)
+    currentRoot = wipRoot
     wipRoot = null
 }
 
@@ -56,7 +60,26 @@ function commitWork(fiber) {
         return
     }
     const domParent = fiber.parent.dom
-    domParent.appendChild(fiber.dom)
+    if (
+        fiber.effectTag === "PLACEMENT" &&
+        fiber.dom != null
+    ) {
+        // 如果 fiber 节点有我们之前打上的 PLACEMENT 标，那么在其父 fiber 节点的 DOM 节点上添加该 fiber 的 DOM。
+        domParent.appendChild(fiber.dom)
+    } else if (
+        fiber.effectTag === "UPDATE" &&
+        fiber.dom != null
+    ) {
+        // 如果是 UPDATE 标记，我们需要更新已经存在的旧 DOM 节点的属性值。
+        updateDom(
+          fiber.dom,
+          fiber.alternate.props,
+          fiber.props
+        )
+    } else if (fiber.effectTag === "DELETION") {
+        // 如果是 DELETION 标记，我们移除该子节点。
+        domParent.removeChild(fiber.dom)
+    }
     commitWork(fiber.child)
     commitWork(fiber.sibling)
 }
@@ -97,16 +120,45 @@ function performUnitOfWork(fiber) {
 }
 function reconcileChildren(wipFiber, elements){
     // todo 调和（reconcile）旧的 fiber 节点 和新的 react elements。
+    // 在迭代整个 react elements 数组的同时我们也会迭代旧的 fiber 节点（wipFiber.alternate）。
     let index = 0
+    let oldFiber = wipFiber.alternate && wipFiber.alternate.child
     let prevSibling = null
-    while (index < elements.length) {
+    while (index < elements.length || oldFiber != null) {
         // 每个 fiber 都会指向它的第一个子节点、它的下一个兄弟节点 和 父节点
         const element = elements[index]
-        const newFiber = {
-            type: element.type,
-            props: element.props,
-            parent: wipFiber,
-            dom: null,
+        let newFiber = null
+        const sameType = oldFiber && element && element.type == oldFiber.type
+        if (sameType) {
+            // 对于新旧节点类型是相同的情况，我们可以复用旧的 DOM，仅修改上面的属性
+            newFiber = {
+                type: oldFiber.type,
+                props: element.props,
+                dom: oldFiber.dom,
+                parent: wipFiber,
+                alternate: oldFiber,
+                effectTag: "UPDATE",
+            }
+        }
+        if (element && !sameType) {
+            // 如果类型不同，意味着我们需要创建一个新的 DOM 节点
+            newFiber = {
+                type: element.type,
+                props: element.props,
+                dom: null,
+                parent: wipFiber,
+                alternate: null,
+                effectTag: "PLACEMENT",
+            }
+        }
+        if (oldFiber && !sameType) {
+            // 如果类型不同，并且旧节点存在的话，需要把旧节点的 DOM 给移除
+            oldFiber.effectTag = "DELETION"
+            deletions.push(oldFiber)
+        }
+        // React使用 key 这个属性来优化 reconciliation 过程。比如, key 属性可以用来检测 elements 数组中的子组件是否仅仅是更换了位置。
+        if (oldFiber) {
+            oldFiber = oldFiber.sibling
         }
         // 根据是否是第一个子节点，来设置父节点的 child 属性的指向，或者上一个节点的 sibling 属性的指向。
         if (index === 0) {
@@ -119,6 +171,58 @@ function reconcileChildren(wipFiber, elements){
         index++
     }
 }
+const isEvent = key => key.startsWith("on")
+const isProperty = key =>
+  key !== "children" && !isEvent(key)
+const isNew = (prev, next) => key =>
+  prev[key] !== next[key]
+const isGone = (prev, next) => key => !(key in next)
+function updateDom(dom, prevProps, nextProps) {
+  // Remove old or changed event listeners
+  Object.keys(prevProps)
+  .filter(isEvent)
+  .filter(
+    key =>
+      !(key in nextProps) ||
+      isNew(prevProps, nextProps)(key)
+  )
+  .forEach(name => {
+    const eventType = name
+      .toLowerCase()
+      .substring(2)
+    dom.removeEventListener(
+      eventType,
+      prevProps[name]
+    )
+  })
+  // Remove old properties
+  Object.keys(prevProps)
+    .filter(isProperty)
+    .filter(isGone(prevProps, nextProps))
+    .forEach(name => {
+      dom[name] = ""
+    })
+  // Set new or changed properties
+  Object.keys(nextProps)
+    .filter(isProperty)
+    .filter(isNew(prevProps, nextProps))
+    .forEach(name => {
+      dom[name] = nextProps[name]
+    })
+    // Add event listeners
+  Object.keys(nextProps)
+  .filter(isEvent)
+  .filter(isNew(prevProps, nextProps))
+  .forEach(name => {
+    const eventType = name
+      .toLowerCase()
+      .substring(2)
+    dom.addEventListener(
+      eventType,
+      nextProps[name]
+    )
+  })
+}
 // 把element渲染到页面,暂时只关心如何在 DOM 上添加东西，之后再考虑 更新 和 删除。
 function render(element, container) {
     // 创建了 根fiber，并且将其设为 nextUnitOfWork 作为第一个任务单元，剩下的任务单元会通过 performUnitOfWork 函数完成并返回
@@ -127,7 +231,9 @@ function render(element, container) {
         props: {
             children: [element],
         },
+        alternate: currentRoot,
     }
+    deletions = []
     nextUnitOfWork = wipRoot
 }
 // 创建DOM节点抽成一个函数
@@ -138,11 +244,7 @@ function createDom(fiber) {
             ? document.createTextNode("")
             : document.createElement(fiber.type);
     // 把除了children外的属性赋值给node
-    Object.keys(fiber.props)
-        .filter(key => key !== "children")
-        .forEach(name => {
-            dom[name] = fiber.props[name];
-        });
+    updateDom(dom, {}, fiber.props)
     return dom
 }
 export const Didact = {
