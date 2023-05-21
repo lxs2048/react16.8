@@ -81,27 +81,7 @@ function performUnitOfWork(fiber) {
     // }
     // 为每个子节点创建对应的新的 fiber 节点。
     const elements = fiber.props.children
-    let index = 0
-    let prevSibling = null
-    while (index < elements.length) {
-        // 每个 fiber 都会指向它的第一个子节点、它的下一个兄弟节点 和 父节点
-        const element = elements[index]
-        const newFiber = {
-            type: element.type,
-            props: element.props,
-            parent: fiber,
-            dom: null,
-        }
-        // 根据是否是第一个子节点，来设置父节点的 child 属性的指向，或者上一个节点的 sibling 属性的指向。
-        if (index === 0) {
-            fiber.child = newFiber
-        } else {
-            prevSibling.sibling = newFiber
-        }
-
-        prevSibling = newFiber
-        index++
-    }
+    reconcileChildren(fiber,elements)
     // 最后找到下一个工作单元。 先试试 child 节点，再试试 sibling 节点，再试试 “uncle” 节点。
     if (fiber.child) {
         return fiber.child
@@ -113,6 +93,30 @@ function performUnitOfWork(fiber) {
             return nextFiber.sibling
         }
         nextFiber = nextFiber.parent
+    }
+}
+function reconcileChildren(wipFiber, elements){
+    // todo 调和（reconcile）旧的 fiber 节点 和新的 react elements。
+    let index = 0
+    let prevSibling = null
+    while (index < elements.length) {
+        // 每个 fiber 都会指向它的第一个子节点、它的下一个兄弟节点 和 父节点
+        const element = elements[index]
+        const newFiber = {
+            type: element.type,
+            props: element.props,
+            parent: wipFiber,
+            dom: null,
+        }
+        // 根据是否是第一个子节点，来设置父节点的 child 属性的指向，或者上一个节点的 sibling 属性的指向。
+        if (index === 0) {
+            wipFiber.child = newFiber
+        } else {
+            prevSibling.sibling = newFiber
+        }
+
+        prevSibling = newFiber
+        index++
     }
 }
 // 把element渲染到页面,暂时只关心如何在 DOM 上添加东西，之后再考虑 更新 和 删除。
