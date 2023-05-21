@@ -59,7 +59,12 @@ function commitWork(fiber) {
     if (!fiber) {
         return
     }
-    const domParent = fiber.parent.dom
+    // const domParent = fiber.parent.dom
+    let domParentFiber = fiber.parent
+    while (!domParentFiber.dom) {
+        domParentFiber = domParentFiber.parent
+    }
+    const domParent = domParentFiber.dom
     if (
         fiber.effectTag === "PLACEMENT" &&
         fiber.dom != null
@@ -78,14 +83,50 @@ function commitWork(fiber) {
         )
     } else if (fiber.effectTag === "DELETION") {
         // 如果是 DELETION 标记，我们移除该子节点。
-        domParent.removeChild(fiber.dom)
+        commitDeletion(fiber, domParent)
     }
     commitWork(fiber.child)
     commitWork(fiber.sibling)
 }
 
+function commitDeletion(fiber, domParent) {
+    if (fiber.dom) {
+      domParent.removeChild(fiber.dom)
+    } else {
+      commitDeletion(fiber.child, domParent)
+    }
+}
+
 // 设置渲染的第一个任务单元，然后开始循环。performUnitOfWork 函数不仅需要执行每一小块的任务单元，还需要返回下一个任务单元。
 function performUnitOfWork(fiber) {
+    /* 函数组件的不同点在于：
+        函数组件的 fiber 没有 DOM 节点
+        并且子节点由函数运行得来而不是直接从 props 属性中获取
+    */
+    const isFunctionComponent = fiber.type instanceof Function
+    if (isFunctionComponent) {
+        updateFunctionComponent(fiber)
+    } else {
+        updateHostComponent(fiber)
+    }
+    // 最后找到下一个工作单元。 先试试 child 节点，再试试 sibling 节点，再试试 “uncle” 节点。
+    if (fiber.child) {
+        return fiber.child
+    }
+    let nextFiber = fiber
+    while (nextFiber) {
+        // 先试试 child 节点，再试试 sibling 节点，再试试 “uncle” 节点，或者直到达到根节点
+        if (nextFiber.sibling) {
+            return nextFiber.sibling
+        }
+        nextFiber = nextFiber.parent
+    }
+}
+function updateFunctionComponent(fiber) {
+    const children = [fiber.type(fiber.props)]
+    reconcileChildren(fiber, children)
+}
+function updateHostComponent(fiber){
     // 每一个 element 都是一个 fiber，每一个 fiber 都是一个任务单元。
     /*
         每个 fiber 节点完成下述三件事：
@@ -105,18 +146,7 @@ function performUnitOfWork(fiber) {
     // 为每个子节点创建对应的新的 fiber 节点。
     const elements = fiber.props.children
     reconcileChildren(fiber,elements)
-    // 最后找到下一个工作单元。 先试试 child 节点，再试试 sibling 节点，再试试 “uncle” 节点。
-    if (fiber.child) {
-        return fiber.child
-    }
-    let nextFiber = fiber
-    while (nextFiber) {
-        // 先试试 child 节点，再试试 sibling 节点，再试试 “uncle” 节点，或者直到达到根节点
-        if (nextFiber.sibling) {
-            return nextFiber.sibling
-        }
-        nextFiber = nextFiber.parent
-    }
+
 }
 function reconcileChildren(wipFiber, elements){
     // todo 调和（reconcile）旧的 fiber 节点 和新的 react elements。

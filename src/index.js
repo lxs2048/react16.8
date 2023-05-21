@@ -4,19 +4,21 @@ import { Didact } from './Didact/Didact'
 const updateValue = e => {
     renderByMyReact(e.target.value)
 }
+const App = (props)=>{
+    return (
+        <div style="background: salmon">
+            <h2 style="text-align:center">from Didact</h2>
+            <input onInput={updateValue} value={props.value} />
+            <h1>
+                <span>{props.value}</span>
+                {props.value === 'hello' ? <p>World</p> : null}
+            </h1>
+            <h3>ohhh</h3>
+        </div>
+    )
+}
 const renderByMyReact = (value) => {
-  const element = (
-      <div style="background: salmon">
-          <h2 style="text-align:center">from Didact</h2>
-          <input onInput={updateValue} value={value} />
-          <h1>
-              <span>{value}</span>
-              {value === 'hello' ? <p>World</p> : null}
-          </h1>
-          <h3>ohhh</h3>
-      </div>
-  );
-  console.log(element,'数据😎😎😎element');
+  const element = <App value={value} />;
 
   const container = document.getElementById("didact-root");
   Didact.render(element, container);
